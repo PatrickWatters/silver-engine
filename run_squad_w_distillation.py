@@ -32,7 +32,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from tqdm import tqdm, trange
 
-#from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 from transformers import (WEIGHTS_NAME, BertConfig,
                                   BertForQuestionAnswering, BertTokenizer,
@@ -76,9 +76,14 @@ def to_list(tensor):
     return tensor.detach().cpu().tolist()
 
 def train(args, train_dataset, model, tokenizer, teacher=None):
+
+    total_data_load_time = AverageMeter("DataLoad", ":6.3f")
+    processing_time = AverageMeter('Process', ':6.3f')
+
+
     """ Train the model """
-    #if args.local_rank in [-1, 0]:
-    #    tb_writer = SummaryWriter()
+    if args.local_rank in [-1, 0]:
+        tb_writer = SummaryWriter()
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
@@ -114,7 +119,7 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
                                                           output_device=args.local_rank,
                                                           find_unused_parameters=True)
-
+        
     # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -132,8 +137,14 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
+        end = time.time()
+
         for step, batch in enumerate(epoch_iterator):
+            total_data_load_time.update((time.time() - end))
             model.train()
+            
+            processing_started = time.time() 
+
             if teacher is not None:
                 teacher.eval()
             batch = tuple(t.to(args.device) for t in batch)
@@ -183,6 +194,8 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
             tr_loss += loss.item()
+            processing_time.update(time.time() - processing_started)
+
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule
@@ -191,12 +204,21 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
 
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
+
+                    with open("file.txt", "a") as file:
+                        
+                        file.write(processing_time.sum + ',' + processing_time.avg
+                                   + ',' + total_data_load_time.sum + ',' +
+                                   total_data_load_time.avg + "\n")
+
+
+
                     if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
                         results = evaluate(args, model, tokenizer)
-                        #for key, value in results.items():
-                        #    tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
-                    #tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
-                    #tb_writer.add_scalar('loss', (tr_loss - logging_loss)/args.logging_steps, global_step)
+                        for key, value in results.items():
+                            tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
+                    tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
+                    tb_writer.add_scalar('loss', (tr_loss - logging_loss)/args.logging_steps, global_step)
                     logging_loss = tr_loss
 
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
@@ -205,9 +227,9 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
                     model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
-                    model_to_save.save_pretrained(output_dir)
-                    torch.save(args, os.path.join(output_dir, 'training_args.bin'))
-                    logger.info("Saving model checkpoint to %s", output_dir)
+                    #model_to_save.save_pretrained(output_dir)
+                    #torch.save(args, os.path.join(output_dir, 'training_args.bin'))
+                    #logger.info("Saving model checkpoint to %s", output_dir)
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
@@ -216,8 +238,8 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
             train_iterator.close()
             break
 
-    #if args.local_rank in [-1, 0]:
-        #tb_writer.close()
+    if args.local_rank in [-1, 0]:
+        tb_writer.close()
 
     return global_step, tr_loss / global_step
 
@@ -586,6 +608,46 @@ def main():
 
     return results
 
+class AverageMeter(object):
+    """Computes and stores the average and current value."""
+    def __init__(self, name, fmt=":f"):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0  # noqa
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+
+        self.count += n
+        self.avg = self.sum / self.count  # noqa
+
+    def __str__(self):
+        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
+        return fmtstr.format(**self.__dict__)
+
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print("\t".join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = "{:" + str(num_digits) + "d}"
+        return "[" + fmt + "/" + fmt.format(num_batches) + "]"
 
 if __name__ == "__main__":
     main()
