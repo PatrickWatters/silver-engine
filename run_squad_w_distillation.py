@@ -22,6 +22,7 @@ import logging
 import os
 import random
 import glob
+import time
 
 import numpy as np
 import torch
@@ -204,12 +205,9 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
 
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
-
                     with open("file.txt", "a") as file:
-                        
-                        file.write(processing_time.sum + ',' + processing_time.avg
-                                   + ',' + total_data_load_time.sum + ',' +
-                                   total_data_load_time.avg + "\n")
+                        file.write(str(processing_time.val) + ',' + str(processing_time.sum) + ',' + str(processing_time.avg)
+                        + ','  + str(total_data_load_time.val) + ',' + str(total_data_load_time.sum) + ',' + str(total_data_load_time.avg) + "\n")
 
 
 
@@ -460,7 +458,7 @@ def main():
                         help="If true, all of the warnings related to data processing will be printed. "
                              "A number of warnings are expected for a normal SQuAD evaluation.")
 
-    parser.add_argument('--logging_steps', type=int, default=50,
+    parser.add_argument('--logging_steps', type=int, default=25,
                         help="Log every X updates steps.")
     parser.add_argument('--save_steps', type=int, default=50,
                         help="Save checkpoint every X updates steps.")
