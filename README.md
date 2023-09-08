@@ -1,56 +1,105 @@
-# Word-level language modeling RNN
+# DistilBERT-SQuAD
 
-This example trains a multi-layer RNN (Elman, GRU, or LSTM) on a language modeling task.
-By default, the training script uses the Wikitext-2 dataset, provided.
-The trained model can then be used by the generate script to generate new text.
+# What is DistilBERT?
 
-```bash
-python main.py --cuda --epochs 6        # Train a LSTM on Wikitext-2 with CUDA, reaching perplexity of 117.61
-python main.py --cuda --epochs 6 --tied # Train a tied LSTM on Wikitext-2 with CUDA, reaching perplexity of 110.44
-python main.py --cuda --tied            # Train a tied LSTM on Wikitext-2 with CUDA for 40 epochs, reaching perplexity of 87.17
-python generate.py                      # Generate samples from the trained LSTM model.
-```
+DistilBERT is a small, fast, cheap and light Transformer model based on Bert architecture. It has 40% less parameters than bert-base-uncased, runs 60% faster while preserving 97% of BERT's performance as measured on the GLUE language understanding benchmark. DistilBERT is trained using knowledge distillation, a technique to compress a large model called the teacher into a smaller model called the student. By distillating Bert, we obtain a smaller Transformer model that bears a lot of similarities with the original BERT model while being lighter, smaller and faster to run. DistilBERT is thus an interesting option to put large-scaled trained Transformer model into production.
 
-The model uses the `nn.RNN` module (and its sister modules `nn.GRU` and `nn.LSTM`)
-which will automatically use the cuDNN backend if run on CUDA with cuDNN installed.
+[Transformers - Hugging Face repository](https://github.com/huggingface/transformers)
 
-During training, if a keyboard interrupt (Ctrl-C) is received,
-training is stopped and the current model is evaluated against the test dataset.
 
-The `main.py` script accepts the following arguments:
 
-```bash
-optional arguments:
-  -h, --help         show this help message and exit
-  --data DATA        location of the data corpus
-  --model MODEL      type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU)
-  --emsize EMSIZE    size of word embeddings
-  --nhid NHID        number of hidden units per layer
-  --nlayers NLAYERS  number of layers
-  --lr LR            initial learning rate
-  --clip CLIP        gradient clipping
-  --epochs EPOCHS    upper epoch limit
-  --batch-size N     batch size
-  --bptt BPTT        sequence length
-  --dropout DROPOUT  dropout applied to layers (0 = no dropout)
-  --decay DECAY      learning rate decay per epoch
-  --tied             tie the word embedding and softmax weights
-  --seed SEED        random seed
-  --cuda             use CUDA
-  --log-interval N   report interval
-  --save SAVE        path to save the final model
-```
+# The Stanford Question Answering Dataset (SQuAD)
 
-With these arguments, a variety of models can be tested.
-As an example, the following arguments produce slower but better models:
+Stanford Question Answering Dataset (SQuAD) is a reading comprehension dataset, consisting of questions posed by crowdworkers on a set of Wikipedia articles, where the answer to every question is a segment of text, or span, from the corresponding reading passage, or the question might be unanswerable.
+
+https://rajpurkar.github.io/SQuAD-explorer/
+
+# Installation
+
+If you are testing this on your own machine I would recommend you do the setup in a virtual environment, as not to affect the rest of your files.
+
+In Python3 you can set up a virtual environment with
 
 ```bash
-python main.py --cuda --emsize 650 --nhid 650 --dropout 0.5 --epochs 40           # Test perplexity of 80.97
-python main.py --cuda --emsize 650 --nhid 650 --dropout 0.5 --epochs 40 --tied    # Test perplexity of 75.96
-python main.py --cuda --emsize 1500 --nhid 1500 --dropout 0.65 --epochs 40        # Test perplexity of 77.42
-python main.py --cuda --emsize 1500 --nhid 1500 --dropout 0.65 --epochs 40 --tied # Test perplexity of 72.30
+python3 -m venv /path/to/new/virtual/environment
 ```
 
-Perplexities on PTB are equal or better than
-[Recurrent Neural Network Regularization (Zaremba et al. 2014)](https://arxiv.org/pdf/1409.2329.pdf)
-and are similar to [Using the Output Embedding to Improve Language Models (Press & Wolf 2016](https://arxiv.org/abs/1608.05859) and [Tying Word Vectors and Word Classifiers: A Loss Framework for Language Modeling (Inan et al. 2016)](https://arxiv.org/pdf/1611.01462.pdf), though both of these papers have improved perplexities by using a form of recurrent dropout [(variational dropout)](http://papers.nips.cc/paper/6241-a-theoretically-grounded-application-of-dropout-in-recurrent-neural-networks).
+Or by installing virtualenv with pip by doing
+```bash
+pip3 install virtualenv
+```
+Then creating the environment with
+```bash
+virtualenv venv
+```
+and finally activating it with
+```bash
+source venv/bin/activate
+```
+
+You must have Python3
+
+Install the requirements with:
+```bash
+pip3 install -r requirements.txt
+```
+
+### SQuAD Fine-tuned model
+
+The SQuAD fine-tuned model is available [here](https://drive.google.com/open?id=1_hLv-jCSODObrZ3cE_vYKN0vou-7d9K4). Download the model by following the google drive [link](https://drive.google.com/open?id=1_hLv-jCSODObrZ3cE_vYKN0vou-7d9K4) place the downloaded model in ```model```.
+
+alternatively inside the model.py file you can specify the type of model you wish to use, the one I have provided, or a Hugging Face fine-tuned SQuAD model.
+```python
+distilbert-base-uncased-distilled-squad
+```
+
+You can do this with
+
+```python
+model = DistilBertForQuestionAnswering.from_pretrained('distilbert-base-uncased-distilled-squad', config=config)
+```
+
+# Making predictions
+
+![test.py](images/carbon.png)
+
+You can also make predictions by using the provided demo which is deployed with Flask to handle the interactions with the UI.
+
+![script.py](images/demo.png)
+
+# How to train (Distil)BERT
+
+The data for SQuAD can be downloaded with the following links and should be saved in a $SQUAD_DIR directory.
+
+- [train-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json)
+
+- [dev-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json)
+
+- [evaluate-v1.1.py](https://github.com/allenai/bi-att-flow/blob/master/squad/evaluate-v1.1.py)
+
+Training on one Tesla V100 16GB GPU, each epoch took around 9 minutes to complete, in comparison training on a single Quadro M4000 the time for each epoch took over 2 hours, so don't be alarmed if your training isn't lightning fast.
+
+```bash
+export SQUAD_DIR=/path/to/SQUAD
+
+python run_squad.py \
+  --model_type distilbert \
+  --model_name_or_path distilbert-base-uncased \
+  --do_train \
+  --do_eval \
+  --do_lower_case \
+  --train_file $SQUAD_DIR/train-v1.1.json \
+  --predict_file $SQUAD_DIR/dev-v1.1.json \
+  --per_gpu_train_batch_size 12 \
+  --learning_rate 3e-5 \
+  --num_train_epochs 2.0 \
+  --max_seq_length 384 \
+  --doc_stride 128 \
+  --output_dir /tmp/debug_squad/
+  ```
+
+# References
+
+- <https://github.com/huggingface/transformers>
+- <https://medium.com/huggingface/distilbert-8cf3380435b5>
+- <https://arxiv.org/pdf/1910.01108.pdf>

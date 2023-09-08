@@ -1,9 +1,0 @@
-server.log
-cache_load.log
-evaluation/
-reports/
-* .pyc
-__pycache__
-super.log
-sdl-server/super.log
-langaugemodel/data

@@ -1,57 +1,75 @@
-import torch.nn as nn
+from __future__ import absolute_import, division, print_function
 
-class RNNModel(nn.Module):
-    """Container module with an encoder, a recurrent module, and a decoder."""
+import collections
+import logging
+import math
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
-        super(RNNModel, self).__init__()
-        self.drop = nn.Dropout(dropout)
-        self.encoder = nn.Embedding(ntoken, ninp)
-        if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
-        else:
-            try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
-            except KeyError:
-                raise ValueError( """An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
-        self.decoder = nn.Linear(nhid, ntoken)
+import numpy as np
+import torch
 
-        # Optionally tie weights as in:
-        # "Using the Output Embedding to Improve Language Models" (Press & Wolf 2016)
-        # https://arxiv.org/abs/1608.05859
-        # and
-        # "Tying Word Vectors and Word Classifiers: A Loss Framework for Language Modeling" (Inan et al. 2016)
-        # https://arxiv.org/abs/1611.01462
-        if tie_weights:
-            if nhid != ninp:
-                raise ValueError('When using the tied flag, nhid must be equal to emsize')
-            self.decoder.weight = self.encoder.weight
+from transformers import (WEIGHTS_NAME, DistilBertConfig, DistilBertForQuestionAnswering, DistilBertTokenizer)
 
-        self.init_weights()
+from torch.utils.data import (DataLoader, SequentialSampler, TensorDataset)
 
-        self.rnn_type = rnn_type
-        self.nhid = nhid
-        self.nlayers = nlayers
+from prediction_utils import (read_squad_examples, convert_examples_to_features, to_list, write_predictions)
 
-    def init_weights(self):
-        initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.decoder.bias.data.zero_()
-        self.decoder.weight.data.uniform_(-initrange, initrange)
+RawResult = collections.namedtuple("RawResult",
+                                   ["unique_id", "start_logits", "end_logits"])
 
-    def forward(self, input, hidden):
-        emb = self.drop(self.encoder(input))
-        output, hidden = self.rnn(emb, hidden)
-        output = self.drop(output)
-        decoded = self.decoder(output.view(output.size(0)*output.size(1), output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
-    def init_hidden(self, bsz):
-        weight = next(self.parameters())
-        if self.rnn_type == 'LSTM':
-            return (weight.new_zeros(self.nlayers, bsz, self.nhid),
-                    weight.new_zeros(self.nlayers, bsz, self.nhid))
-        else:
-            return weight.new_zeros(self.nlayers, bsz, self.nhid)
+class Model:
+
+    def __init__(self, path:str):
+        self.max_seq_length = 384
+        self.doc_stride = 128
+        self.max_query_length = 64
+        self.do_lower_case = True
+        self.n_best_size = 20
+        self.max_answer_length = 30
+        self.eval_batch_size = 1
+        self.model, self.tokenizer = self.model_load(path)
+        self.model.eval()
+
+    def model_load(self, path:str):
+        config = DistilBertConfig.from_pretrained(path + "/config.json")
+        tokenizer = DistilBertTokenizer.from_pretrained(path, do_lower_case=self.do_lower_case)
+        model = DistilBertForQuestionAnswering.from_pretrained(path, from_tf=False, config=config)
+        return model, tokenizer
+
+    def predict(self, context, question):
+
+        examples = read_squad_examples(context, question)
+        features = convert_examples_to_features(examples, self.tokenizer, self.max_seq_length, self.doc_stride, self.max_query_length)
+
+        # Convert to Tensors and build dataset
+        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
+        all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
+        dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
+                                all_example_index)
+
+
+        eval_sampler = SequentialSampler(dataset)
+        eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=self.eval_batch_size)
+
+        all_results = []
+        for batch in (eval_dataloader):
+            batch = tuple(t for t in batch)
+            with torch.no_grad():
+                inputs = {'input_ids':      batch[0],
+                          'attention_mask': batch[1]
+                          }
+                example_indices = batch[3]
+                outputs = self.model(**inputs)
+
+            for i, example_index in enumerate(example_indices):
+                eval_feature = features[example_index.item()]
+                unique_id = int(eval_feature.unique_id)
+                result = RawResult(unique_id    = unique_id,
+                                   start_logits = to_list(outputs[0][i]),
+                                   end_logits   = to_list(outputs[1][i]))
+                all_results.append(result)
+
+        answer = write_predictions(examples, features, all_results, self.do_lower_case, self.n_best_size, self.max_answer_length)
+        return answer
