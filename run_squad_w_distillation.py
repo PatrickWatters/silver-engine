@@ -232,9 +232,12 @@ def train(args, train_dataset, model, tokenizer, teacher=None):
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
                 break
+            end = time.time()
         if args.max_steps > 0 and global_step > args.max_steps:
             train_iterator.close()
             break
+      
+
 
     if args.local_rank in [-1, 0]:
         tb_writer.close()
