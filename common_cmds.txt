@@ -1,0 +1,4 @@
+python super-server/server.py -c super-server/cfgs/local_cifar10.yaml
+python super-server/server.py --data_dir /Users/patrickwatters/Projects/datasets/sdl-cifar10
+python super-server/server.py --batch_size 256
+

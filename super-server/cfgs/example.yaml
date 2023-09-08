@@ -1,0 +1,11 @@
+batch_size: 128
+source_system: local
+data_dir: /Users/patrickwatters/Projects/datasets/sdl-cifar10
+dataset_droplast: False
+#redis_host: 10.0.1.197 #private ip
+redis_port: 6379
+dataload_lambda: lambda_dataloader
+gprc_port: 50052
+grpc_maxworkers: 10
+max_lookahead: 25
+max_job_workers: 10
