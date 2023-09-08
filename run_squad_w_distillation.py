@@ -356,15 +356,15 @@ def main():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("--train_file", default="/Users/patrickwatters/Projects/distillbert-qa/squad/train-v2.0.json", type=str, required=False,
+    parser.add_argument("--train_file", default="squad/train-v2.0.json", type=str, required=False,
                         help="SQuAD json for training. E.g., train-v1.1.json")
-    parser.add_argument("--predict_file", default="/Users/patrickwatters/Projects/distillbert-qa/squad/train-v2.0.json", type=str, required=False,
+    parser.add_argument("--predict_file", default="squad/train-v2.0.json", type=str, required=False,
                         help="SQuAD json for predictions. E.g., dev-v1.1.json or test-v1.1.json")
     parser.add_argument("--model_type", default="distilbert", type=str, required=False,
                         help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()))
     parser.add_argument("--model_name_or_path", default="distilbert-base-uncased ", type=str, required=False,
                         help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS))
-    parser.add_argument("--output_dir", default="/Users/patrickwatters/Projects/distillbert-qa/ouput", type=str, required=False,
+    parser.add_argument("--output_dir", default="ouput", type=str, required=False,
                         help="The output directory where the model checkpoints and predictions will be written.")
 
     # Distillation parameters (optional)
